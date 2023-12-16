@@ -9,6 +9,8 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@types/app-root-path": "^1.2.8",
+    "@types/node": "^20.10.4",
     "@webgpu/types": "^0.1.40",
     "typescript": "^5.2.2",
     "vite": "^5.0.8",
@@ -16,5 +18,8 @@
   },
   "workspaces": [
     "src/logger"
-  ]
+  ],
+  "dependencies": {
+    "app-root-path": "^3.1.0"
+  }
 }
