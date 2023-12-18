@@ -7,12 +7,15 @@ struct VOut {
 	@location(0) color: vec4f,
 }
 
+@group(0) @binding(0)
+var<uniform> projectionViewMatrix: mat4x4f;
+
 @vertex
 fn vs(vin: VIn) -> VOut {
 	var output: VOut;
 
-	output.position = vec4f(vin.position, 0.0, 1.0);
-	output.color = vec4f(vin.position, 0.5, 1.0);
+	output.position = projectionViewMatrix * vec4f(vin.position, 0.0, 1.0);
+	output.color = vec4f(output.position.xy, 0.2, 1.0);
 
 	return output;
 }
