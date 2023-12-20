@@ -1,9 +1,7 @@
-import { mat4 } from 'gl-matrix';
 import { Camera } from '~/Renderer/Camera';
-import { Rectangle } from '~/Renderer/elements/rectangle';
 import { RendererError } from '~/Renderer/errors';
 import { Figure } from '~/Renderer/figures/Figure';
-import { RectFigure } from '~/Renderer/figures/Rect.figure';
+import { Shader } from '~/Renderer/Shader';
 import { ShaderManager } from '~/Renderer/ShaderManager';
 
 export class Renderer {
@@ -11,65 +9,23 @@ export class Renderer {
     private _device!: GPUDevice;
     private _canvasContext!: GPUCanvasContext;
 
+    private _preferredCanvasFormat!: GPUTextureFormat;
+    private _shader!: Shader;
+
     private _clearColor = { r: 0.2, g: 0.2, b: 0.2, a: 1.0 };
-    private _shaderModule!: GPUShaderModule;
     private _camera!: Camera;
-
-    private _vertexBufferLayout: GPUVertexBufferLayout = {
-        attributes: [
-            {
-                shaderLocation: 0,
-                offset: 0,
-                format: 'float32x2',
-            }
-        ],
-        arrayStride: Float32Array.BYTES_PER_ELEMENT * 2,
-        stepMode: 'vertex',
-    };
-
-    private _pipelineDescriptor!: GPURenderPipelineDescriptor;
-
-    private _projectionMatrixBingGroupLayoutDescriptor: GPUBindGroupLayoutDescriptor = {
-        entries: [
-            {
-                binding: 0,
-                buffer: { type: 'uniform' },
-                visibility: GPUShaderStage.VERTEX,
-            }
-        ]
-    };
 
     private _renderPassDescriptor!: GPURenderPassDescriptor;
 
     public async init(gpu: GPU, canvasContext: GPUCanvasContext): Promise<void> {
-        this._gpu = gpu;
-        this._canvasContext = canvasContext;
+        await this._initMainThing(gpu, canvasContext);
 
-        const adapter = await this._gpu.requestAdapter({
-            powerPreference: 'high-performance',
-        });
-
-        if (!adapter) {
-            throw new RendererError('Couldn\'t request WebGPU adapter.');
-        }
-
-        this._device = await adapter.requestDevice();
+        this._preferredCanvasFormat = this._gpu.getPreferredCanvasFormat();
 
         this._canvasContext.configure({
             device: this._device,
-            format: this._gpu.getPreferredCanvasFormat(),
+            format: this._preferredCanvasFormat,
             alphaMode: 'premultiplied',
-        });
-
-        await ShaderManager.load(this._device);
-
-        this._shaderModule = ShaderManager.getShader('base')!.shaderModule;
-
-        this._camera = new Camera({
-            x: 0,
-            y: 0,
-            width: this._canvasContext.canvas.width,
-            height: this._canvasContext.canvas.height,
         });
 
         this._renderPassDescriptor = {
@@ -82,12 +38,44 @@ export class Renderer {
                 },
             ],
         };
+
+        await ShaderManager.load(this._device, {
+            textureFormat: this._preferredCanvasFormat,
+        });
+
+        this._shader = ShaderManager.getShader('Base')!;
+
+        if (!this._shader) {
+            throw new RendererError(`The shader Base is not loaded.`);
+        }
+
+        this._camera = new Camera({
+            x: 0,
+            y: 0,
+            width: this._canvasContext.canvas.width,
+            height: this._canvasContext.canvas.height,
+        });
+    }
+
+    private async _initMainThing(gpu: GPU, canvasContext: GPUCanvasContext): Promise<void> {
+        this._gpu = gpu;
+        this._canvasContext = canvasContext;
+
+        const adapter = await this._gpu.requestAdapter({
+            powerPreference: 'high-performance',
+        });
+
+        if (!adapter) {
+            throw new RendererError('Couldn\'t request WebGPU adapter.');
+        }
+
+        this._device = await adapter.requestDevice();
     }
 
     public async draw(figures: Figure[]) {
         if (figures.length === 0) return;
 
-        // TODO: Сделать сортировку по разных фигурам? У них могут отличаться размеры буферов.
+        // TODO: Сделать сортировку по разным фигурам? У них могут отличаться размеры буферов.
         const vertexBuffer = this._createVertexBuffer(figures.length * figures[0].verticesTotalSize);
         const indexBuffer = this._createIndexBuffer(figures.length * figures[0].indicesTotalSize);
 
@@ -102,57 +90,25 @@ export class Renderer {
             );
         }
 
-        const projectionBingGroupLayout = this._device.createBindGroupLayout(
-            this._projectionMatrixBingGroupLayoutDescriptor
+        const projectionUniformBuffer = this._createUniformBuffer(
+            this._camera.projectionMatrix.length * Float32Array.BYTES_PER_ELEMENT,
         );
 
-        const pipelineLayout = this._device.createPipelineLayout({
-            bindGroupLayouts: [
-                projectionBingGroupLayout,
-            ]
-        });
-
-        const uniformBuffer = this._device.createBuffer({
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            size: this._camera.projectionMatrix.length * Float32Array.BYTES_PER_ELEMENT,
-        });
-
-        this._device.queue.writeBuffer(uniformBuffer, 0, this._camera.projectionMatrix as Float32Array);
+        this._device.queue.writeBuffer(projectionUniformBuffer, 0, this._camera.projectionMatrix as Float32Array);
 
         const projectionBindGroup = this._device.createBindGroup({
-            layout: projectionBingGroupLayout,
+            layout: this._shader.getBindGroupLayoutByLabel('projectionMatrix')!,
             entries: [
                 {
                     binding: 0,
                     resource: {
-                        buffer: uniformBuffer,
+                        buffer: projectionUniformBuffer,
                     },
                 }
             ]
         });
 
-        this._pipelineDescriptor = {
-            vertex: {
-                module: this._shaderModule,
-                entryPoint: 'vs',
-                buffers: [ this._vertexBufferLayout ],
-            },
-            fragment: {
-                module: this._shaderModule,
-                entryPoint: 'fs',
-                targets: [
-                    {
-                        format: this._gpu.getPreferredCanvasFormat(),
-                    },
-                ],
-            },
-            primitive: {
-                topology: 'triangle-list',
-            },
-            layout: pipelineLayout,
-        };
-
-        const pipeline = this._device.createRenderPipeline(this._pipelineDescriptor);
+        const pipeline = this._device.createRenderPipeline(this._shader.createRenderPipelineDescriptor());
         const commandEncoder = this._device.createCommandEncoder();
         const passEncoder = commandEncoder.beginRenderPass(this._renderPassDescriptor);
 
@@ -164,6 +120,13 @@ export class Renderer {
         passEncoder.end();
 
         this._device.queue.submit([ commandEncoder.finish() ]);
+    }
+
+    private _createUniformBuffer(size: number): GPUBuffer {
+        return this._device.createBuffer({
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            size,
+        });
     }
 
     private _createVertexBuffer(size: number): GPUBuffer {

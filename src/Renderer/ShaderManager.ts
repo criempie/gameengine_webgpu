@@ -1,13 +1,28 @@
-import { Shader } from '~/Renderer/Shader';
+import { InheritedShaderConstructor, Shader, ShaderOptions } from '~/Renderer/Shader';
+import { BaseShader } from '~/Renderer/shaders/Base.shader';
 
 export class ShaderManager {
     private static _shaders: Map<string, Shader> = new Map();
 
-    public static async load(device: GPUDevice) {
-        const base_shader = new Shader('/src/Renderer/shaders/base.wgsl?raw', device);
-        await base_shader.load();
+    private static availableShaders: InheritedShaderConstructor[] = [
+        BaseShader,
+    ];
 
-        this._shaders.set('base', base_shader);
+    public static async load(device: GPUDevice, options: ShaderOptions) {
+        const unloaded_shaders = ShaderManager
+        .availableShaders
+        .map((s) => {
+            return new s(device, options);
+        });
+
+        await Promise.all(
+            unloaded_shaders.map((shader) => {
+                return shader.load()
+                .then(() => {
+                    this._shaders.set(shader.name, shader);
+                });
+            })
+        );
     }
 
     public static getShader(name: string): Shader | undefined {

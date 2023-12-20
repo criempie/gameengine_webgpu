@@ -1,17 +1,26 @@
 import { ShaderError } from '~/Renderer/errors';
 
-export class Shader {
-    protected readonly _filePath!: string;
+export abstract class Shader {
+    protected readonly _filePath: string;
     protected readonly _device: GPUDevice;
-    protected _code: string | undefined;
-    protected _shaderModule: GPUShaderModule | undefined;
+    protected readonly _textureFormat: GPUTextureFormat;
+    protected _shaderModule!: GPUShaderModule;
 
-    public get code(): string {
-        if (!this._code) {
-            throw new ShaderError('The shader code is not defined. The load function must be called.');
-        }
+    protected _bindGroupLayouts!: GPUBindGroupLayout[];
 
-        return this._code;
+    public abstract name: string;
+
+    public abstract vertexBufferLayout: GPUVertexBufferLayout;
+    public abstract bindingGroupLayoutDescriptors: GPUBindGroupLayoutDescriptor[];
+
+    public abstract createRenderPipelineDescriptor(): GPURenderPipelineDescriptor;
+
+    public abstract createPipelineLayoutDescriptor(): GPUPipelineLayoutDescriptor;
+
+    protected constructor(filePath: string, device: GPUDevice, options: ShaderOptions) {
+        this._filePath = filePath;
+        this._device = device;
+        this._textureFormat = options.textureFormat;
     }
 
     public get shaderModule(): GPUShaderModule {
@@ -22,18 +31,46 @@ export class Shader {
         return this._shaderModule;
     }
 
-    constructor(filePath: string, device: GPUDevice) {
-        this._filePath = filePath;
-        this._device = device;
+    public get bindGroupLayouts(): GPUBindGroupLayout[] {
+        if (!this._bindGroupLayouts) {
+            this._bindGroupLayouts = this.bindingGroupLayoutDescriptors.map((desc) => {
+                return this._device.createBindGroupLayout(desc);
+            });
+        }
+
+        return this._bindGroupLayouts;
     }
 
     public async load(): Promise<void> {
         const { default: code } = await import(/* @vite-ignore */ this._filePath);
 
-        this._code = code;
         this._shaderModule = this._device.createShaderModule({
-            code: this._code!,
+            code,
             label: `shader ${ this._filePath }`,
+        });
+
+        this._bindGroupLayouts = this._createBindGroupLayouts();
+    }
+
+    public getBindGroupLayoutByLabel(label: string): GPUBindGroupLayout | undefined {
+        return this.bindGroupLayouts.find((bg) => bg.label === label);
+    }
+
+    protected _createBindGroupLayouts(): GPUBindGroupLayout[] {
+        return this.bindingGroupLayoutDescriptors.map((desc) => {
+            return this._device.createBindGroupLayout(desc);
+        });
+    }
+
+    protected _createPipelineLayout(): GPUPipelineLayout {
+        return this._device.createPipelineLayout({
+            bindGroupLayouts: this.bindGroupLayouts,
         });
     }
 }
+
+export type ShaderOptions = {
+    textureFormat: GPUTextureFormat,
+}
+
+export type InheritedShaderConstructor = new (device: GPUDevice, options: ShaderOptions) => Shader;
