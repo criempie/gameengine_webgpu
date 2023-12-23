@@ -1,3 +1,4 @@
+import { GPUContext } from '~/Renderer/GPUContext';
 import { InheritedShaderConstructor, Shader, ShaderOptions } from '~/Renderer/Shader';
 import { BaseShader } from '~/Renderer/shaders/Base.shader';
 
@@ -8,11 +9,11 @@ export class ShaderManager {
         BaseShader,
     ];
 
-    public static async load(device: GPUDevice, options: ShaderOptions) {
+    public static async load(options: ShaderOptions) {
         const unloaded_shaders = ShaderManager
         .availableShaders
         .map((s) => {
-            return new s(device, options);
+            return new s(GPUContext.device, options);
         });
 
         await Promise.all(
