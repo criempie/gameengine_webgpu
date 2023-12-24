@@ -31,6 +31,10 @@ export abstract class Figure {
         return this._vertexConsists * this.vertexItemSize;
     }
 
+    public get vertexItemCount(): number {
+        return this._vertexConsists;
+    }
+
     public get vertexItemSize(): number {
         return Float32Array.BYTES_PER_ELEMENT;
     }

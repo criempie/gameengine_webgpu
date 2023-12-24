@@ -1,18 +1,12 @@
 import { Camera } from '~/Renderer/Camera';
 import { RendererError } from '~/Renderer/errors';
 import { Figure } from '~/Renderer/figures/Figure';
+import { GPUContext } from '~/Renderer/GPUContext';
 import { Shader } from '~/Renderer/Shader';
 import { ShaderManager } from '~/Renderer/ShaderManager';
 
 export class Renderer {
-    private _gpu!: GPU;
-    private _device!: GPUDevice;
-    private _canvasContext!: GPUCanvasContext;
-
-    private _preferredCanvasFormat!: GPUTextureFormat;
     private _shader!: Shader;
-
-    private _clearColor = { r: 0.2, g: 0.2, b: 0.2, a: 1.0 };
     private _camera!: Camera;
 
     private _renderPassDescriptor!: GPURenderPassDescriptor;
@@ -20,27 +14,19 @@ export class Renderer {
     public async init(gpu: GPU, canvasContext: GPUCanvasContext): Promise<void> {
         await this._initMainThing(gpu, canvasContext);
 
-        this._preferredCanvasFormat = this._gpu.getPreferredCanvasFormat();
-
-        this._canvasContext.configure({
-            device: this._device,
-            format: this._preferredCanvasFormat,
-            alphaMode: 'premultiplied',
-        });
-
         this._renderPassDescriptor = {
             colorAttachments: [
                 {
-                    clearValue: this._clearColor,
+                    clearValue: GPUContext.clearColor,
                     loadOp: 'clear',
                     storeOp: 'store',
-                    view: this._canvasContext.getCurrentTexture().createView(),
+                    view: GPUContext.canvasContext.getCurrentTexture().createView(),
                 },
             ],
         };
 
-        await ShaderManager.load(this._device, {
-            textureFormat: this._preferredCanvasFormat,
+        await ShaderManager.load({
+            textureFormat: GPUContext.canvasFormat,
         });
 
         this._shader = ShaderManager.getShader('Base')!;
@@ -52,16 +38,13 @@ export class Renderer {
         this._camera = new Camera({
             x: 0,
             y: 0,
-            width: this._canvasContext.canvas.width,
-            height: this._canvasContext.canvas.height,
+            width: GPUContext.canvasContext.canvas.width,
+            height: GPUContext.canvasContext.canvas.height,
         });
     }
 
     private async _initMainThing(gpu: GPU, canvasContext: GPUCanvasContext): Promise<void> {
-        this._gpu = gpu;
-        this._canvasContext = canvasContext;
-
-        const adapter = await this._gpu.requestAdapter({
+        const adapter = await gpu.requestAdapter({
             powerPreference: 'high-performance',
         });
 
@@ -69,34 +52,53 @@ export class Renderer {
             throw new RendererError('Couldn\'t request WebGPU adapter.');
         }
 
-        this._device = await adapter.requestDevice();
+        const device = await adapter.requestDevice();
+
+        GPUContext.init({
+            gpu,
+            device,
+            canvasContext,
+            clearColor: { r: 0.2, g: 0.2, b: 0.2, a: 1.0 },
+        });
     }
 
     public async draw(figures: Figure[]) {
         if (figures.length === 0) return;
 
-        // TODO: Сделать сортировку по разным фигурам? У них могут отличаться размеры буферов.
-        const vertexBuffer = this._createVertexBuffer(figures.length * figures[0].verticesTotalSize);
-        const indexBuffer = this._createIndexBuffer(figures.length * figures[0].indicesTotalSize);
+        this._shader.vertexBuffer.initBuffer(figures.reduce((acc, f) => acc + f.verticesCount, 0));
+        this._shader.indexBuffer.initBuffer(figures.reduce((acc, f) => acc + f.indicesCount, 0));
 
-        for (let i = 0; i < figures.length; i++) {
-            const figure = figures[i];
+        for (let figureNumber = 0; figureNumber < figures.length; figureNumber++) {
+            const figure = figures[figureNumber];
 
-            this._device.queue.writeBuffer(vertexBuffer, i * figure.verticesTotalSize, figure.getVertices());
-            this._device.queue.writeBuffer(
-                indexBuffer,
-                i * figure.indicesTotalSize,
-                figures[i].getIndices(i * figure.verticesCount),
-            );
+            const vertexItems = figure.getVertices();
+            for (let i = 0; i < vertexItems.length; i += figure.vertexItemCount) {
+                this._shader.vertexBuffer.pushData(
+                    Array.from(vertexItems).slice(i, i + 2),
+                    Math.floor(i / figure.vertexItemCount) + figureNumber * figure.verticesCount
+                );
+            }
+
+            const indexes = figures[figureNumber].getIndices(figureNumber * figure.verticesCount);
+            for (let i = 0; i < indexes.length; i++) {
+                const index = indexes[i];
+                this._shader.indexBuffer.pushData(
+                    [ index ],
+                    i + figureNumber * figure.indicesCount,
+                );
+            }
         }
+
+        this._shader.vertexBuffer.updateGPUBuffer();
+        this._shader.indexBuffer.updateGPUBuffer();
 
         const projectionUniformBuffer = this._createUniformBuffer(
             this._camera.projectionMatrix.length * Float32Array.BYTES_PER_ELEMENT,
         );
 
-        this._device.queue.writeBuffer(projectionUniformBuffer, 0, this._camera.projectionMatrix as Float32Array);
+        GPUContext.device.queue.writeBuffer(projectionUniformBuffer, 0, this._camera.projectionMatrix as Float32Array);
 
-        const projectionBindGroup = this._device.createBindGroup({
+        const projectionBindGroup = GPUContext.device.createBindGroup({
             layout: this._shader.getBindGroupLayoutByLabel('projectionMatrix')!,
             entries: [
                 {
@@ -108,36 +110,36 @@ export class Renderer {
             ]
         });
 
-        const pipeline = this._device.createRenderPipeline(this._shader.createRenderPipelineDescriptor());
-        const commandEncoder = this._device.createCommandEncoder();
+        const pipeline = GPUContext.device.createRenderPipeline(this._shader.createRenderPipelineDescriptor());
+        const commandEncoder = GPUContext.device.createCommandEncoder();
         const passEncoder = commandEncoder.beginRenderPass(this._renderPassDescriptor);
 
         passEncoder.setPipeline(pipeline);
-        passEncoder.setVertexBuffer(0, vertexBuffer);
-        passEncoder.setIndexBuffer(indexBuffer, 'uint16');
+        passEncoder.setVertexBuffer(0, this._shader.vertexBuffer.GPUBuffer);
+        passEncoder.setIndexBuffer(this._shader.indexBuffer.GPUBuffer, 'uint16');
         passEncoder.setBindGroup(0, projectionBindGroup);
-        passEncoder.drawIndexed(figures.length * figures[0].indicesCount);
+        passEncoder.drawIndexed(figures.reduce((acc, f) => acc + f.indicesCount, 0));
         passEncoder.end();
 
-        this._device.queue.submit([ commandEncoder.finish() ]);
+        GPUContext.device.queue.submit([ commandEncoder.finish() ]);
     }
 
     private _createUniformBuffer(size: number): GPUBuffer {
-        return this._device.createBuffer({
+        return GPUContext.device.createBuffer({
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
             size,
         });
     }
 
     private _createVertexBuffer(size: number): GPUBuffer {
-        return this._device.createBuffer({
+        return GPUContext.device.createBuffer({
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
             size,
         });
     }
 
     private _createIndexBuffer(size: number): GPUBuffer {
-        return this._device.createBuffer({
+        return GPUContext.device.createBuffer({
             usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
             size,
         });

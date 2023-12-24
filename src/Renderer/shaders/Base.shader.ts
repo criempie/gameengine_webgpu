@@ -1,21 +1,14 @@
+import { IndexBuffer } from '~/Renderer/Buffer/IndexBuffer';
 import { Shader, ShaderOptions } from '~/Renderer/Shader';
+import { VertexBuffer } from '~/Renderer/Buffer/VertexBuffer';
 
 export class BaseShader extends Shader {
     public static filePath: string = '/src/Renderer/shaders/base.wgsl?raw';
 
     public name: string = 'Base';
 
-    public vertexBufferLayout: GPUVertexBufferLayout = {
-        attributes: [
-            {
-                shaderLocation: 0,
-                offset: 0,
-                format: 'float32x2',
-            }
-        ],
-        arrayStride: Float32Array.BYTES_PER_ELEMENT * 2,
-        stepMode: 'vertex',
-    };
+    public vertexBuffer: VertexBuffer;
+    public indexBuffer: IndexBuffer;
 
     public bindingGroupLayoutDescriptors: GPUBindGroupLayoutDescriptor[] = [
         {
@@ -41,7 +34,7 @@ export class BaseShader extends Shader {
             vertex: {
                 module: this._shaderModule,
                 entryPoint: 'vs',
-                buffers: [ this.vertexBufferLayout ],
+                buffers: [ this.vertexBuffer.layout ],
             },
             fragment: {
                 module: this._shaderModule,
@@ -61,5 +54,15 @@ export class BaseShader extends Shader {
 
     constructor(device: GPUDevice, options: ShaderOptions) {
         super(BaseShader.filePath, device, options);
+
+        this.vertexBuffer = new VertexBuffer([
+            {
+                shaderLocation: 0,
+                offset: 0,
+                format: 'float32x2',
+            }
+        ]);
+
+        this.indexBuffer = new IndexBuffer('uint16');
     }
 }

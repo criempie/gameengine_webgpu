@@ -1,4 +1,6 @@
+import { IndexBuffer } from '~/Renderer/Buffer/IndexBuffer';
 import { ShaderError } from '~/Renderer/errors';
+import { VertexBuffer } from '~/Renderer/Buffer/VertexBuffer';
 
 export abstract class Shader {
     protected readonly _filePath: string;
@@ -10,7 +12,9 @@ export abstract class Shader {
 
     public abstract name: string;
 
-    public abstract vertexBufferLayout: GPUVertexBufferLayout;
+    public abstract vertexBuffer: VertexBuffer;
+    public abstract indexBuffer: IndexBuffer;
+
     public abstract bindingGroupLayoutDescriptors: GPUBindGroupLayoutDescriptor[];
 
     public abstract createRenderPipelineDescriptor(): GPURenderPipelineDescriptor;

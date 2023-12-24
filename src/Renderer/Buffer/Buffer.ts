@@ -1,59 +1,55 @@
 import { VertexBufferError } from '~/Renderer/errors';
+import { GPUContext } from '~/Renderer/GPUContext';
 
-export class VertexBuffer {
-    private _buffer!: ArrayBuffer;
-    private _dataView!: DataView;
+export abstract class Buffer {
+    protected _fragmentByteSize: number;
+    protected _itemsInFragment: number;
+    protected _fragmentFormats: ParsedBufferDataFormat[];
 
-    private readonly _attributeFormats: ParsedVertexFormat[];
-    private readonly _vertexSizeBytes: number;
-    private readonly _itemsInVertex: number;
-    private _vertexCount!: number;
+    protected _buffer!: ArrayBuffer;
+    protected _dataView!: DataView;
+    protected _gpuBuffer!: GPUBuffer;
+    protected _count!: number;
 
-    public layout: GPUVertexBufferLayout;
+    protected abstract readonly GPU_BUFFER_USAGE: GPUFlagsConstant;
 
     public get buffer(): ArrayBuffer {
         return this._buffer;
     }
 
-    constructor(attributes: GPUVertexAttribute[]) {
-        this._attributeFormats = VertexBuffer._parseAttributeFormats(attributes);
-
-        [ this._vertexSizeBytes, this._itemsInVertex ] = VertexBuffer._processParsedVertexFormats(
-            this._attributeFormats);
-
-        this.layout = {
-            stepMode: 'vertex',
-            arrayStride: this._vertexSizeBytes,
-            attributes,
-        };
+    public get GPUBuffer(): GPUBuffer {
+        return this._gpuBuffer;
     }
 
-    public initBuffer(vertexCount: number): void {
-        this._buffer = new ArrayBuffer(this._vertexSizeBytes * vertexCount);
+    protected constructor(formats: (GPUVertexFormat | GPUIndexFormat)[]) {
+        this._fragmentFormats = formats.map(Buffer._parseBufferFormat);
+        [ this._fragmentByteSize, this._itemsInFragment ] = Buffer._processBufferFormats(this._fragmentFormats);
+    }
+
+    public initBuffer(count: number): void {
+        this._buffer = new ArrayBuffer(this._fragmentByteSize * count);
         this._dataView = new DataView(this._buffer);
-        this._vertexCount = vertexCount;
+
+        this._count = count;
+
+        this._gpuBuffer = GPUContext.device.createBuffer({
+            usage: this.GPU_BUFFER_USAGE,
+            size: this._buffer.byteLength,
+        });
     }
 
-    public setData(data: number[]): void {
-        if (!this._buffer || !this._dataView) {
-            throw new VertexBufferError('The buffer was not initialized.');
-        }
-
-        const vertices = data.length / this._itemsInVertex;
-
-        for (let v = 0; v < vertices; v++) {
-            const partData = data.slice(v * this._vertexSizeBytes, (v + 1) * this._vertexSizeBytes);
-            this.pushData(partData, v);
-        }
+    public updateGPUBuffer(): void {
+        GPUContext.device.queue.writeBuffer(this._gpuBuffer, 0, this._buffer);
     }
 
-    public pushData(data: number[], vertexNumber: number): void {
-        let offset = vertexNumber * this._vertexSizeBytes;
+    public pushData(data: number[], fragmentNumber: number): void {
+        let offset = fragmentNumber * this._fragmentByteSize;
         let itemIndex = 0;
-        for (const format of this._attributeFormats) {
+        for (const format of this._fragmentFormats) {
             for (let n = 0; n < format.number; n++) {
                 const item = data[itemIndex];
 
+                // I have no idea how to do this without this heresy.
                 switch (format.type) {
                     case 'float': {
                         if (format.bytes === 4) {
@@ -101,28 +97,23 @@ export class VertexBuffer {
         }
     }
 
-    private static _processParsedVertexFormats(parsedFormats: ParsedVertexFormat[]): [ number, number ] {
-        let vertexSize = 0;
-        let vertexItems = 0;
+    // Returns [ fragmentBySize: number, itemsInFragment: number ].
+    protected static _processBufferFormats(formats: ParsedBufferDataFormat[]): [ number, number ] {
+        let fragmentByteSize = 0;
+        let itemsInFragment = 0;
 
-        parsedFormats.forEach((f) => {
-            vertexSize += f.bytes * f.number;
-            vertexItems += f.number;
+        formats.forEach((f) => {
+            fragmentByteSize += f.bytes * f.number;
+            itemsInFragment += f.number;
         });
 
         return [
-            vertexSize,
-            vertexItems,
+            fragmentByteSize,
+            itemsInFragment,
         ];
     }
 
-    private static _parseAttributeFormats(attributes: GPUVertexAttribute[]): ParsedVertexFormat[] {
-        return attributes.map((a) => {
-            return VertexBuffer._parseVertexFormat(a.format);
-        });
-    }
-
-    private static _parseVertexFormat(format: GPUVertexFormat): ParsedVertexFormat {
+    protected static _parseBufferFormat(format: GPUVertexFormat | GPUIndexFormat): ParsedBufferDataFormat {
         const regex = /([a-z]+)([0-9]+)x([0-9]+)|([a-z]+)([0-9]+)/g;
         const matched = regex.exec(format);
 
@@ -138,13 +129,13 @@ export class VertexBuffer {
 
         if (matched[1]) {
             return {
-                type: matched[1] as VertexFormatType,
+                type: matched[1] as BufferDataFormat,
                 bytes: +matched[2] / 8,
                 number: +matched[3],
             };
         } else {
             return {
-                type: matched[4] as VertexFormatType,
+                type: matched[4] as BufferDataFormat,
                 bytes: +matched[5] / 8,
                 number: 1,
             };
@@ -152,10 +143,10 @@ export class VertexBuffer {
     }
 }
 
-type VertexFormatType = 'uint' | 'sint' | 'unorm' | 'snorm' | 'float';
+export type BufferDataFormat = 'uint' | 'sint' | 'unorm' | 'snorm' | 'float';
 
-type ParsedVertexFormat = {
-    type: VertexFormatType,
+export type ParsedBufferDataFormat = {
+    type: BufferDataFormat,
     bytes: number,
     number: number,
 }
