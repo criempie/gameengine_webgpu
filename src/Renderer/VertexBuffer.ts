@@ -57,9 +57,9 @@ export class VertexBuffer {
                 switch (format.type) {
                     case 'float': {
                         if (format.bytes === 4) {
-                            this._dataView.setFloat32(offset, item);
+                            this._dataView.setFloat32(offset, item, true);
                         } else if (format.bytes === 8) {
-                            this._dataView.setFloat64(offset, item);
+                            this._dataView.setFloat64(offset, item, true);
                         }
 
                         break;
@@ -69,9 +69,9 @@ export class VertexBuffer {
                         if (format.bytes === 1) {
                             this._dataView.setInt8(offset, item);
                         } else if (format.bytes === 2) {
-                            this._dataView.setInt16(offset, item);
+                            this._dataView.setInt16(offset, item, true);
                         } else if (format.bytes === 4) {
-                            this._dataView.setInt32(offset, item);
+                            this._dataView.setInt32(offset, item, true);
                         }
 
                         break;
@@ -81,9 +81,9 @@ export class VertexBuffer {
                         if (format.bytes === 1) {
                             this._dataView.setUint8(offset, item);
                         } else if (format.bytes === 2) {
-                            this._dataView.setUint16(offset, item);
+                            this._dataView.setUint16(offset, item, true);
                         } else if (format.bytes === 4) {
-                            this._dataView.setUint32(offset, item);
+                            this._dataView.setUint32(offset, item, true);
                         }
 
                         break;
