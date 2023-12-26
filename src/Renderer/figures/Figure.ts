@@ -7,48 +7,26 @@ export abstract class Figure {
     protected _height: number;
 
     // The number of values that compose one vertex.
-    protected abstract _vertexConsists: number;
+    protected abstract _itemsInVertex: number;
+    protected abstract _itemInVertexByteSize: number;
 
-    protected abstract _vertices: Float32Array;
-    protected abstract _indices: number[];
+    protected abstract _verticesItems: Float32Array;
+    protected abstract _verticesCount: number;
+    protected abstract _vertexByteSize: number;
+
+    protected abstract _indices: Uint16Array;
+    protected abstract _indexByteSize: number;
+
+    public get verticesItems(): Float32Array {
+        return this._verticesItems;
+    }
 
     public get verticesCount(): number {
-        const count = this._vertices.length / this._vertexConsists;
-
-        // If the number is not an integer, then the problem is in the declaration of variables.
-        if (count % 1 !== 0) {
-            throw new Error('vertices length contradicts vertexConsists');
-        }
-
-        return count;
+        return this._verticesCount;
     }
 
-    public get verticesTotalSize(): number {
-        return this.verticesCount * this.vertexSize;
-    }
-
-    public get vertexSize(): number {
-        return this._vertexConsists * this.vertexItemSize;
-    }
-
-    public get vertexItemCount(): number {
-        return this._vertexConsists;
-    }
-
-    public get vertexItemSize(): number {
-        return Float32Array.BYTES_PER_ELEMENT;
-    }
-
-    public get indicesCount(): number {
-        return this._indices.length;
-    }
-
-    public get indicesTotalSize(): number {
-        return this.indexSize * this.indicesCount;
-    }
-
-    public get indexSize(): number {
-        return Uint16Array.BYTES_PER_ELEMENT;
+    public get indices(): Uint16Array {
+        return this._indices;
     }
 
     protected constructor(options: Position & Size) {
@@ -58,11 +36,21 @@ export abstract class Figure {
         this._height = options.height;
     }
 
-    public getVertices(): Float32Array {
-        return this._vertices;
-    }
+    public getVertices(): Array<Float32Array> {
+        const vertices = new Array(this._verticesCount);
+        let vertexIndex = 0;
 
-    public getIndices(offset: number = 0): Uint16Array {
-        return new Uint16Array(this._indices.map((i) => i + offset));
+        for (let i = 0; i < this._verticesItems.length; i += this._itemsInVertex) {
+            const vertex = new Float32Array(this._itemsInVertex);
+
+            for (let j = 0; j < this._itemsInVertex; j++) {
+                vertex[j] = this._verticesItems[i + j];
+            }
+
+            vertices[vertexIndex] = vertex;
+            vertexIndex++;
+        }
+
+        return vertices;
     }
 }

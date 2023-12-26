@@ -5,6 +5,10 @@ export class VertexBuffer extends Buffer {
 
     public layout: GPUVertexBufferLayout;
 
+    public get verticesCount(): number {
+        return this._fragmentsCount;
+    }
+
     constructor(attributes: GPUVertexAttribute[]) {
         const formats = attributes.map((att) => att.format);
 
@@ -15,5 +19,9 @@ export class VertexBuffer extends Buffer {
             arrayStride: this._fragmentByteSize,
             attributes,
         };
+    }
+
+    public setVertices(data: Float32Array): void {
+        this.pushMultipleFragmentData(data, [ 0, data.length ]);
     }
 }

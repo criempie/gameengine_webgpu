@@ -43,50 +43,24 @@ export class Renderer {
         });
     }
 
-    private async _initMainThing(gpu: GPU, canvasContext: GPUCanvasContext): Promise<void> {
-        const adapter = await gpu.requestAdapter({
-            powerPreference: 'high-performance',
-        });
-
-        if (!adapter) {
-            throw new RendererError('Couldn\'t request WebGPU adapter.');
-        }
-
-        const device = await adapter.requestDevice();
-
-        GPUContext.init({
-            gpu,
-            device,
-            canvasContext,
-            clearColor: { r: 0.2, g: 0.2, b: 0.2, a: 1.0 },
-        });
-    }
-
     public async draw(figures: Figure[]) {
         if (figures.length === 0) return;
 
-        this._shader.vertexBuffer.initBuffer(figures.reduce((acc, f) => acc + f.verticesCount, 0));
-        this._shader.indexBuffer.initBuffer(figures.reduce((acc, f) => acc + f.indicesCount, 0));
+        this._shader.vertexBuffer.initBuffer(figures.reduce((acc, f) => acc + f.verticesItems.length, 0));
+        this._shader.indexBuffer.initBuffer(figures.reduce((acc, f) => acc + f.indices.length, 0));
 
+        let indicesOffset = 0;
         for (let figureNumber = 0; figureNumber < figures.length; figureNumber++) {
-            const figure = figures[figureNumber];
+            const verticesCreated = this._shader.vertexBuffer.setVertices(figures[figureNumber].verticesItems);
 
-            const vertexItems = figure.getVertices();
-            for (let i = 0; i < vertexItems.length; i += figure.vertexItemCount) {
-                this._shader.vertexBuffer.pushData(
-                    Array.from(vertexItems).slice(i, i + 2),
-                    Math.floor(i / figure.vertexItemCount) + figureNumber * figure.verticesCount
-                );
+            const indices = figures[figureNumber].indices.slice();
+            for (let i = 0; i < indices.length; i++) {
+                indices[i] += indicesOffset;
             }
 
-            const indexes = figures[figureNumber].getIndices(figureNumber * figure.verticesCount);
-            for (let i = 0; i < indexes.length; i++) {
-                const index = indexes[i];
-                this._shader.indexBuffer.pushData(
-                    [ index ],
-                    i + figureNumber * figure.indicesCount,
-                );
-            }
+            indicesOffset += figures[figureNumber].verticesCount;
+
+            this._shader.indexBuffer.pushIndices(indices);
         }
 
         this._shader.vertexBuffer.updateGPUBuffer();
@@ -118,10 +92,29 @@ export class Renderer {
         passEncoder.setVertexBuffer(0, this._shader.vertexBuffer.GPUBuffer);
         passEncoder.setIndexBuffer(this._shader.indexBuffer.GPUBuffer, 'uint16');
         passEncoder.setBindGroup(0, projectionBindGroup);
-        passEncoder.drawIndexed(figures.reduce((acc, f) => acc + f.indicesCount, 0));
+        passEncoder.drawIndexed(this._shader.indexBuffer.indicesCount);
         passEncoder.end();
 
         GPUContext.device.queue.submit([ commandEncoder.finish() ]);
+    }
+
+    private async _initMainThing(gpu: GPU, canvasContext: GPUCanvasContext): Promise<void> {
+        const adapter = await gpu.requestAdapter({
+            powerPreference: 'high-performance',
+        });
+
+        if (!adapter) {
+            throw new RendererError('Couldn\'t request WebGPU adapter.');
+        }
+
+        const device = await adapter.requestDevice();
+
+        GPUContext.init({
+            gpu,
+            device,
+            canvasContext,
+            clearColor: { r: 0.2, g: 0.2, b: 0.2, a: 1.0 },
+        });
     }
 
     private _createUniformBuffer(size: number): GPUBuffer {

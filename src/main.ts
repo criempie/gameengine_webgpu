@@ -25,7 +25,7 @@ async function start() {
     const square3 = new RectFigure(50, 400, 700, 50);
     const square4 = new RectFigure(10, 10, 780, 580);
 
-    await renderer.draw([ square, square2, square3, ]);
+    requestAnimationFrame(() => renderer.draw([ square, square3, square2 ]))
 }
 
 start();
